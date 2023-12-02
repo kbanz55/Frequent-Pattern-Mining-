@@ -1,26 +1,17 @@
-from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
-from pyspark.mllib.regression import LabeledPoint
+pyspark
+from pyspark.ml.fpm import FPGrowth
 
-variety = ["Setosa", "Versicolor", "Virginica"]
+dataFrame = spark.read.csv("s3://dotley-spark-bucket/Bakery.csv", header=True).rdd
 
-def getFeatures(x):
-    return [x["sepal.length"],
-    x["sepal.width"],
-    x["petal.length"],
-    x["petal.width"]]
+keyValuePairs = dataFrame.map (lambda row : (row['TransactionNo'], {row['Items']}))
+collectedKeyValuePairs = keyValuePairs.reduceByKey( lambda a,b : a.union(b) )
 
-def getLabel(x):
-    return variety.index(x["variety"])
+itemsToList=collectedKeyValuePairs.map(lambda x : (x[0], list(x[1])))
+transactionsFrame=spark.createDataFrame(itemsToList, ["id","items"])
 
-df = spark.read.csv("s3://obiaamaka/iris.csv", header=True).rdd
-(trainingData, testData) = df.randomSplit([0.7,0.3])
-labeledPoints = trainingData.map(lambda x : LabeledPoint( getLabel(x), getFeatures(x) ))
+model = FPGrowth(itemsCol="items", minSupport=0.03, minConfidence=0.6)
+modelResults = model.fit(transactionsFrame)
 
-model = DecisionTree.trainClassifier(labeledPoints, numClasses=3, categoricalFeaturesInfo = {}, impurity='gini', maxDepth=5, maxBins=76)
-predictions = model.predict(testData.map(lambda x : getFeatures(x)))
+modelResults.associationRules.show()
 
-labelsAndPredictions = testData.map(lambda x : getLabel(x)).zip(predictions)
-testErr = labelsAndPredictions.filter(lambda lp : lp[0] != lp[1]).count()/float(testData.count())
- print("Test Error is " + str(testErr))
- predictions.collect()
- labelsAndPredictions.collect()
+modelResults.freqItemsets.show()
